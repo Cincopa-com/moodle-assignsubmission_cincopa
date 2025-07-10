@@ -103,6 +103,10 @@ class assign_submission_cincopa extends assign_submission_plugin
         // INITIAL VALUES SET
         if ($courseToken) {
             $mform->setDefault('assignsubmission_cincopa_courseApiToken', $courseToken);
+        }else {
+            if(get_cp_course_metadata($COURSE->id)['cp_token']){
+                $mform->setDefault('assignsubmission_cincopa_courseApiToken', get_cp_course_metadata($COURSE->id)['cp_token']);
+            }
         }
         if($courseAssetTypes) {
             $mform->setDefault('assignsubmission_cincopa_courseAssetTypes', $courseAssetTypes);
@@ -111,9 +115,7 @@ class assign_submission_cincopa extends assign_submission_plugin
 
         // METADATA SET
         if(get_cp_course_metadata($COURSE->id)['cp_token']) {
-            $mform->setDefault('assignsubmission_cincopa_courseApiToken', get_cp_course_metadata($COURSE->id)['cp_token']);
-            $mform->disabledIf('assignsubmission_cincopa_courseApiToken', 'assignsubmission_cincopa_enabled', 'notchecked');
-            $mform->disabledIf('assignsubmission_cincopa_courseApiToken', 'assignsubmission_cincopa_enabled', 'checked');
+            $mform->disabledIf('assignsubmission_cincopa_courseApiToken', 'assignsubmission_cincopa_allow_cincopaApiUpdate', 'notchecked');
         }
         if(get_cp_course_metadata($COURSE->id)['cp_asset_types']) {
             $mform->setDefault('assignsubmission_cincopa_courseAssetTypes', get_cp_course_metadata($COURSE->id)['cp_asset_types']);
@@ -139,7 +141,7 @@ class assign_submission_cincopa extends assign_submission_plugin
     public function save_settings(stdClass $data)
     {
         if (isset($data->{'assignsubmission_cincopa_courseApiToken'})) {
-            $this->set_config('courseApiToken', $data->{'assignsubmission_cincopa_courseApiToken'});
+             $this->set_config('courseApiToken', $data->{'assignsubmission_cincopa_courseApiToken'});            
         }
         if (isset($data->{'assignsubmission_cincopa_courseAssetTypes'})) {
             $this->set_config('courseAssetTypes', $data->{'assignsubmission_cincopa_courseAssetTypes'});
