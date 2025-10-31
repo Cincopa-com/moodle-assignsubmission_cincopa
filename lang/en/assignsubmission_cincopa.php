@@ -34,3 +34,14 @@ $string['template_cincopa_help'] = 'Gallery Template';
 $string['api_token_cincopa'] = 'Cincopa Api Token';
 $string['api_token_cincopa_help'] = 'Api token Cincopa account';
 $string['description'] = '<div style="margin:10px;padding:15px;background-color:#f5f5f5;border:2px solid #e3e3e3;"><img src="https://www.cincopa.com/_cms/design15/icons/favicon-32.png?affdata=moodle-plugin-assign,setup-page"> Welcome to Cincopa Moodle plugin, check our <a href="https://www.cincopa.com/moodle/welcome" target="_blank">welcome page</a> for registration and support documents.</div>';
+
+// Strings for the Sub-Account Feature
+$string['use_sub_accounts'] = 'Use Sub-Accounts';
+$string['use_sub_accounts_help'] = 'If enabled, you can assign a specific API token for a sub-account based on the course creation month and year.';
+$string['token_selection_mode'] = 'API Token Source';
+$string['token_mode_auto'] = 'Automatic';
+$string['token_mode_manual'] = 'Manual';
+$string['manual_token'] = 'Cincopa Api Token';
+$string['auto_token_found'] = '<strong>Sub-Account:</strong> {$a->subaccount}<br><strong>Token:</strong> {$a->token}';
+$string['auto_token_not_found'] = 'A token could not be found or created for this course\'s sub-account ({$a}).';
+$string['sub_account_creation_api_error'] = '<strong>Creation Failed:</strong> The Cincopa API returned an error: "{$a}" Please enter a token manually.';

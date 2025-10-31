@@ -2,33 +2,70 @@
 
 namespace assignsubmission_cincopa\output;
 
+require_once __DIR__ . '/../../encrypter.php';
+
 define('ASSIGNSUBMISSION_CINCOPA_FILEAREA', 'submissions_cincopa');
 
 class mobile  {
     public static function mobile_submission_edit($args) {
         global $OUTPUT, $DB;
-        $configs = $DB->get_records_sql("SELECT * FROM {assign_plugin_config} WHERE name = 'courseApiToken' OR name = 'courseAssetTypes'");
+
         $args = (object) $args;
-        $token = get_config('assignsubmission_cincopa', 'api_token_cincopa');
+        $assignmentid = $args->assignmentid;
+
+        // Fetch all relevant configs for this specific assignment in one query.
+        $sql = "SELECT name, value FROM {assign_plugin_config} WHERE assignment = :assignmentid AND plugin = 'cincopa'";
+        $params = ['assignmentid' => $assignmentid];
+        $configs = $DB->get_records_sql($sql, $params);
+
+        // Determine the correct API token to use.
+        $token = get_config('assignsubmission_cincopa', 'api_token_cincopa'); // Default global token.
+        if (isset($configs['courseapitoken'])) {
+            $token = $configs['courseapitoken']->value; // Override with assignment-specific token if it exists.
+        }
+
+        // Get the saved UID.
+        $uid = '';
+        if (isset($configs['cincopa_uid'])) {
+            $uid = $configs['cincopa_uid']->value;
+        }
+        
         $userid = $args->userid;
+        $studentgallery = "assign:" . $assignmentid . ":" . $userid;
+
+        // Generate the temporary token for the iframe, now including the rrid.
+        $temp_token = '';
+        if (!empty($token)) {
+            $expire = new \DateTime('+2 hour');
+            // *** UPDATED LINE: Pass the rrid to the temp token generator. ***
+            $temp_token = createSelfGeneratedTempTokenV3getTempAPIKeyV2($token, $expire, null, null, null, $studentgallery);
+        }
+        
         $template = get_config('assignsubmission_cincopa', 'template_cincopa');
         $defaultView = get_config('assignsubmission_cincopa', 'submission_thumb_size_cincopa');
-        $url = "https://api.cincopa.com/v2/ping.json?api_token=".$token;
-        $result = file_get_contents($url);
-        if($result) {
-            $result = json_decode($result, true);
-            $uid = $result['accid'];
-        }
+
+        // Pass the correct UID and the new temporary token to the template.
+        $template_context = (object)[
+            'token' => $temp_token, // This is the temporary token for the upload iframe.
+            'permanent_token' => $token, // This is the permanent token for gallery viewing.
+            'userid' => $userid,
+            'uid' => $uid,
+            'template' => $template,
+            'view' => $defaultView
+        ];
+
+        // Fetch all configs for JS, not just the two from the old query.
+        $allconfigs = $DB->get_records('assign_plugin_config', ['assignment' => $assignmentid]);
 
         return [
             'templates' => [
                 [
                     'id' => 'main',
-                    'html' => $OUTPUT->render_from_template('assignsubmission_cincopa/mobile_view_page', (object) array('token' => $token, 'userid' => $userid, 'uid' => ($uid ? $uid : ''), 'template' => $template, 'view' => $defaultView)),
+                    'html' => $OUTPUT->render_from_template('assignsubmission_cincopa/mobile_view_page', $template_context),
                 ]
             ],
             'javascript' => '
-            var that = this; var phpUserId = "'.$userid.'"; var defToken = "'.$token.'"; var configs = '.json_encode(array_values($configs)).';
+            var that = this; var phpUserId = "'.$userid.'"; var defToken = "'.$token.'"; var configs = '.json_encode(array_values($allconfigs)).';
             var result = {
                 isEnabledForEdit: function () {
                     return true;
@@ -36,12 +73,8 @@ class mobile  {
                 componentInit: async function() {       
                          
                     console.warn("Plugin did load Javascript");
-                    console.log("Plugin loaded!");
-                    // @codingStandardsIgnoreStart
-                    // Wait for the DOM to be rendered.
-                    setTimeout(() => {
-                        console.log("DOM Loaded!")
-                    });
+                    // The UID is now passed directly from PHP, so we set it here.
+                    this.currentUID = "' . $uid . '";
                     
                     this.currentToken = configs?.find?.(el => el.assignment == this.assign.id && el.name == "courseApiToken")?.value;
                     this.allowedTypes = "all";
@@ -49,11 +82,7 @@ class mobile  {
                     if(configs?.find?.(el => el.assignment == this.assign.id && el.name == "courseAssetTypes")?.value) {
                         this.allowedTypes = configs?.find?.(el => el.assignment == this.assign.id && el.name == "courseAssetTypes")?.value;
                     }
-                    if(this.currentToken) {
-                        const req = await fetch("https://api.cincopa.com/v2/ping.json?api_token=" + this.currentToken);
-                        const res = await req.json();
-                        this.currentUID = res?.accid;
-                    }
+
                     if(this.submission?.status == "submitted") {
                         this.hasAssignmentSubmitted = true;
                     } else {

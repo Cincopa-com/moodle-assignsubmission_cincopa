@@ -22,20 +22,28 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+if ($ADMIN->fulltree) {
     $description = new lang_string('description', 'assignsubmission_cincopa');
     $settings->add(new admin_setting_heading('defaultsettings', '', $description));
-$settings->add(new admin_setting_configcheckbox('assignsubmission_cincopa/default',
-                   new lang_string('default', 'assignsubmission_cincopa'),
-                   new lang_string('default_help', 'assignsubmission_cincopa'), 0));
-$settings->add(new admin_setting_configtext('assignsubmission_cincopa/template_cincopa',
-                   new lang_string('template_cincopa', 'assignsubmission_cincopa'),
-                   new lang_string('template_cincopa_help', 'assignsubmission_cincopa'), 'AICAK79_S47M', PARAM_TEXT));
-$settings->add(new admin_setting_configtext('assignsubmission_cincopa/api_token_cincopa',
-                   new lang_string('api_token_cincopa', 'assignsubmission_cincopa'),
-                   new lang_string('api_token_cincopa_help', 'assignsubmission_cincopa'), '', PARAM_TEXT));
-$settings->add(new admin_setting_configselect('assignsubmission_cincopa/submission_thumb_size_cincopa', 'Submission template thumbnail size', '', 'large', array('large' => 'large thumbnail', 'small' => 'smaller thumbnail', 'list' => 'show files as a list') ));
+    $settings->add(new admin_setting_configcheckbox('assignsubmission_cincopa/default',
+                       new lang_string('default', 'assignsubmission_cincopa'),
+                       new lang_string('default_help', 'assignsubmission_cincopa'), 0));
+    $settings->add(new admin_setting_configtext('assignsubmission_cincopa/template_cincopa',
+                       new lang_string('template_cincopa', 'assignsubmission_cincopa'),
+                       new lang_string('template_cincopa_help', 'assignsubmission_cincopa'), 'AICAK79_S47M', PARAM_TEXT));
+    $settings->add(new admin_setting_configtext('assignsubmission_cincopa/api_token_cincopa',
+                       new lang_string('api_token_cincopa', 'assignsubmission_cincopa'),
+                       new lang_string('api_token_cincopa_help', 'assignsubmission_cincopa'), '', PARAM_TEXT));
+
+    // New setting to enable/disable the sub-account feature.
+    $settings->add(new admin_setting_configcheckbox('assignsubmission_cincopa/use_sub_accounts',
+                       new lang_string('use_sub_accounts', 'assignsubmission_cincopa'),
+                       new lang_string('use_sub_accounts_help', 'assignsubmission_cincopa'), 0));
+
+    $settings->add(new admin_setting_configselect('assignsubmission_cincopa/submission_thumb_size_cincopa', 'Submission template thumbnail size', '', 'large', array('large' => 'large thumbnail', 'small' => 'smaller thumbnail', 'list' => 'show files as a list') ));
 
 
-$settings->add(new admin_setting_configcheckbox('assignsubmission_cincopa/enabled_recording',
-                   'Enable Recording for grade',
-                   "", 0));
+    $settings->add(new admin_setting_configcheckbox('assignsubmission_cincopa/enabled_recording',
+                       'Enable Recording for grade',
+                       "", 0));
+}
