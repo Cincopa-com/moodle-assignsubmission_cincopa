@@ -251,8 +251,26 @@ class assign_submission_cincopa extends assign_submission_plugin
             if (!empty($data_list_tokens['tokens'])) {
                 foreach ($data_list_tokens['tokens'] as $token) {
                     $permissions = $token['permissions'];
-                    if (strpos($permissions, 'asset.*') !== false ||
-                       (strpos($permissions, 'asset.read') !== false && strpos($permissions, 'asset.write') !== false)) {
+                    if (
+                        // gallery.* + asset.*
+                        (strpos($permissions, 'gallery.*') !== false && strpos($permissions, 'asset.*') !== false)
+                        ||
+                        // gallery.* + (asset.read & asset.write)
+                        (strpos($permissions, 'gallery.*') !== false &&
+                            strpos($permissions, 'asset.read') !== false &&
+                            strpos($permissions, 'asset.write') !== false)
+                        ||
+                        // asset.* + (gallery.read & gallery.write)
+                        (strpos($permissions, 'asset.*') !== false &&
+                            strpos($permissions, 'gallery.read') !== false &&
+                            strpos($permissions, 'gallery.write') !== false)
+                        ||
+                        // (gallery.read & gallery.write) + (asset.read & asset.write)
+                        (strpos($permissions, 'gallery.read') !== false &&
+                            strpos($permissions, 'gallery.write') !== false &&
+                            strpos($permissions, 'asset.read') !== false &&
+                            strpos($permissions, 'asset.write') !== false)
+                    ){
                         $final_token = $token['api_token'];
                         break;
                     }
@@ -262,7 +280,7 @@ class assign_submission_cincopa extends assign_submission_plugin
 
         if (empty($final_token)) {
             $url_create_token = "https://api.cincopa.com/v2/token.create.json?api_token=" . $main_api_token .
-                                "&name=moodle_course_" . $courseid . "_token&permissions=asset.*&sub_account=" . $sub_account_uid;
+                                "&name=moodle_course_" . $courseid . "_token&permissions=asset.*|gallery.*&sub_account=" . $sub_account_uid;
             $response_create_token = @file_get_contents($url_create_token);
             if ($response_create_token) {
                 $data_create_token = json_decode($response_create_token, true);

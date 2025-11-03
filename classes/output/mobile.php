@@ -11,61 +11,110 @@ class mobile  {
         global $OUTPUT, $DB;
 
         $args = (object) $args;
-        $assignmentid = $args->assignmentid;
 
-        // Fetch all relevant configs for this specific assignment in one query.
-        $sql = "SELECT name, value FROM {assign_plugin_config} WHERE assignment = :assignmentid AND plugin = 'cincopa'";
-        $params = ['assignmentid' => $assignmentid];
-        $configs = $DB->get_records_sql($sql, $params);
-
-        // Determine the correct API token to use.
-        $token = get_config('assignsubmission_cincopa', 'api_token_cincopa'); // Default global token.
-        if (isset($configs['courseapitoken'])) {
-            $token = $configs['courseapitoken']->value; // Override with assignment-specific token if it exists.
+        // Parse args correctly from mobile web service format
+        $parsed_args = [];
+        if (is_array($args)) {
+            foreach ($args as $arg) {
+                if (isset($arg['name']) && isset($arg['value'])) {
+                    $parsed_args[$arg['name']] = $arg['value'];
+                }
+            }
+        } else {
+            $parsed_args = (array) $args;
         }
-
-        // Get the saved UID.
-        $uid = '';
-        if (isset($configs['cincopa_uid'])) {
-            $uid = $configs['cincopa_uid']->value;
-        }
-        
+        //s$userid = $parsed_args['userid'] ?? 0;
         $userid = $args->userid;
-        $studentgallery = "assign:" . $assignmentid . ":" . $userid;
-
-        // Generate the temporary token for the iframe, now including the rrid.
-        $temp_token = '';
-        if (!empty($token)) {
-            $expire = new \DateTime('+2 hour');
-            // *** UPDATED LINE: Pass the rrid to the temp token generator. ***
-            $temp_token = createSelfGeneratedTempTokenV3getTempAPIKeyV2($token, $expire, null, null, null, $studentgallery);
+        
+        // The assignment ID should be in the args but with a different name
+        $assignmentid = $parsed_args['assign'] ?? 
+                        $parsed_args['assignid'] ?? 
+                        $parsed_args['assignmentid'] ?? 
+                        $parsed_args['instanceid'] ?? 0;
+        
+        // If still no assignment ID, get from user's current submission
+        if (!$assignmentid && $userid) {
+            $assignmentid = $DB->get_field_sql(
+                "SELECT assignment FROM {assign_submission} 
+                WHERE userid = :userid 
+                ORDER BY timemodified DESC LIMIT 1",
+                ['userid' => $userid]
+            );
         }
+
+        $sql = "SELECT *
+        FROM {assign_plugin_config}
+        WHERE (name = 'courseApiToken' OR name = 'courseAssetTypes' OR name = 'cincopa_uid')
+          AND assignment = ?";
+
+        // Pass the ID as a parameter in an array
+        $params = [(int) $assignmentid];
+
+        // This will now only get records for that one assignment
+        $configs_map = $DB->get_records_sql($sql, $params);
+
+        
+        $api_token = null;
+        $asset_types = ''; // Use an empty string for types
+        $cincopa_uid = null;
+
+        // 2. Loop through the array of results
+        foreach ($configs_map as $config_row) {
+            switch ($config_row->name) {
+                case 'courseApiToken':
+                    $api_token = $config_row->value;
+                    break;
+                case 'courseAssetTypes':
+                    $asset_types = $config_row->value;
+                    break;
+                case 'cincopa_uid':
+                    $cincopa_uid = $config_row->value;
+                    break;
+            }
+        }
+
+
+        $token = get_config('assignsubmission_cincopa', 'api_token_cincopa');
+        if (isset($api_token)) {
+            $token = $api_token; // Assignment-specific token
+        }        
+        if (!empty($token)) {
+            $studentgallery = "assign:" . $assignmentid . ":" . $userid;
+            $expire = new \DateTime('+2 hour');
+            $token = createSelfGeneratedTempTokenV3getTempAPIKeyV2($token, $expire, null, null, null, null);
+        }
+
         
         $template = get_config('assignsubmission_cincopa', 'template_cincopa');
         $defaultView = get_config('assignsubmission_cincopa', 'submission_thumb_size_cincopa');
 
-        // Pass the correct UID and the new temporary token to the template.
-        $template_context = (object)[
-            'token' => $temp_token, // This is the temporary token for the upload iframe.
-            'permanent_token' => $token, // This is the permanent token for gallery viewing.
-            'userid' => $userid,
-            'uid' => $uid,
-            'template' => $template,
-            'view' => $defaultView
-        ];
-
-        // Fetch all configs for JS, not just the two from the old query.
-        $allconfigs = $DB->get_records('assign_plugin_config', ['assignment' => $assignmentid]);
+        // 4. Get UID from settings, with fallback for backward compatibility
+        $uid = '';
+        if (isset($cincopa_uid)) {
+            $uid = $cincopa_uid; // Get saved UID
+        } else if (!empty($token)) {
+            // 5. Backward compatibility: Old submission, UID not saved. Fetch it.
+            $url = "https://api.cincopa.com/v2/ping.json?api_token=".$token;
+            $result = @file_get_contents($url);
+            if($result) {
+                $result_decoded = json_decode($result, true);
+                if (isset($result_decoded['accid'])) {
+                    $uid = $result_decoded['accid'];
+                }
+            }
+        }
 
         return [
             'templates' => [
                 [
                     'id' => 'main',
-                    'html' => $OUTPUT->render_from_template('assignsubmission_cincopa/mobile_view_page', $template_context),
+                    'html' => $OUTPUT->render_from_template('assignsubmission_cincopa/mobile_view_page', (object) array('token' => $token, 'userid' => $userid, 'uid' => ($uid ? $uid : ''), 'template' => $template, 'view' => $defaultView)),
                 ]
             ],
             'javascript' => '
-            var that = this; var phpUserId = "'.$userid.'"; var defToken = "'.$token.'"; var configs = '.json_encode(array_values($allconfigs)).';
+            var that = this; var phpUserId = "'.$userid.'"; var defToken = "'.$token.'"; var configs = "{token:\"'.$token.'\", uid:\"'.$uid.'\", allowed_types:\"'.$asset_types.'\"}";
+            var allowed_types = "'.$asset_types.'";
+
             var result = {
                 isEnabledForEdit: function () {
                     return true;
@@ -73,16 +122,20 @@ class mobile  {
                 componentInit: async function() {       
                          
                     console.warn("Plugin did load Javascript");
-                    // The UID is now passed directly from PHP, so we set it here.
-                    this.currentUID = "' . $uid . '";
+                    console.log("Plugin loaded!");
+                    // @codingStandardsIgnoreStart
+                    // Wait for the DOM to be rendered.
+                    setTimeout(() => {
+                        console.log("DOM Loaded!")
+                    });
                     
-                    this.currentToken = configs?.find?.(el => el.assignment == this.assign.id && el.name == "courseApiToken")?.value;
+                    this.currentToken = "'.$token.'"
                     this.allowedTypes = "all";
                     this.allowedExtension = "all";
-                    if(configs?.find?.(el => el.assignment == this.assign.id && el.name == "courseAssetTypes")?.value) {
-                        this.allowedTypes = configs?.find?.(el => el.assignment == this.assign.id && el.name == "courseAssetTypes")?.value;
+                    if(allowed_types){
+                        this.allowedTypes = allowed_types;
                     }
-
+                    this.currentUID = "'.$uid.'";
                     if(this.submission?.status == "submitted") {
                         this.hasAssignmentSubmitted = true;
                     } else {
@@ -119,7 +172,7 @@ class mobile  {
                 },
 
                 prepareSubmissionData: function(assign, submission, plugin, inputData, pluginData) {
-                    pluginData.onlinetext_editor = {
+                     pluginData.onlinetext_editor = {
                         text: "submission for" + "rrid:assign"+assign.id+":"+submission.userid,
                         format: 1,
                         itemid: 0,
