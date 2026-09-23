@@ -44,11 +44,13 @@ class mobile  {
 
         $sql = "SELECT *
         FROM {assign_plugin_config}
-        WHERE (name = 'courseApiToken' OR name = 'courseAssetTypes' OR name = 'cincopa_uid')
+        WHERE (name = 'courseApiToken' OR name = 'courseAssetTypes'
+               OR name = 'cincopa_uid' OR name = ?)
           AND assignment = ?";
 
         // Pass the ID as a parameter in an array
-        $params = [(int) $assignmentid];
+        $useruidname = 'cincopa_uid_u' . (int) $userid;
+        $params = [$useruidname, (int) $assignmentid];
 
         // This will now only get records for that one assignment
         $configs_map = $DB->get_records_sql($sql, $params);
@@ -56,7 +58,8 @@ class mobile  {
         
         $api_token = null;
         $asset_types = ''; // Use an empty string for types
-        $cincopa_uid = null;
+        $cincopa_uid = null;      // Assignment baseline.
+        $user_cincopa_uid = null; // Recorded for this submission; wins when present.
 
         // 2. Loop through the array of results
         foreach ($configs_map as $config_row) {
@@ -69,6 +72,9 @@ class mobile  {
                     break;
                 case 'cincopa_uid':
                     $cincopa_uid = $config_row->value;
+                    break;
+                case $useruidname:
+                    $user_cincopa_uid = $config_row->value;
                     break;
             }
         }
@@ -90,7 +96,9 @@ class mobile  {
 
         // 4. Get UID from settings, with fallback for backward compatibility
         $uid = '';
-        if (isset($cincopa_uid)) {
+        if (isset($user_cincopa_uid)) {
+            $uid = $user_cincopa_uid;
+        } else if (isset($cincopa_uid)) {
             $uid = $cincopa_uid; // Get saved UID
         } else if (!empty($token)) {
             // 5. Backward compatibility: Old submission, UID not saved. Fetch it.

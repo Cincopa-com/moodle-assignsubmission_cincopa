@@ -59,6 +59,43 @@ class assign_submission_cincopa extends assign_submission_plugin
     }
 
     /**
+     * Whether any student has started work on this assignment.
+     *
+     * Deliberately counts 'new' rows too. Moodle creates a submission row
+     * through get_user_grade() whenever the assignment is viewed - by the
+     * student on their own submission status page, or by a teacher opening the
+     * grader - so a row sitting at 'new' routinely exists before anything is
+     * submitted, and it can already have uploaded files behind it. Being
+     * strict here costs nothing: a teacher who wants the automatic sub-account
+     * can still switch the mode, which bypasses this check.
+     *
+     * @return bool
+     */
+    private function has_submissions() {
+        global $DB;
+        if (empty($this->assignment) || !$this->assignment->has_instance()) {
+            return false;
+        }
+        return $DB->record_exists('assign_submission',
+            ['assignment' => $this->assignment->get_instance()->id]);
+    }
+
+    /**
+     * Config name holding the Cincopa account id (accid) this submission's gallery
+     * was uploaded to. assign_plugin_config rows are scoped to the assignment and
+     * have no userid column, so the name carries the submitter.
+     *
+     * @param stdClass $submission
+     * @return string
+     */
+    private function uid_config_name(stdClass $submission) {
+        if (!empty($submission->userid)) {
+            return 'cincopa_uid_u' . $submission->userid;
+        }
+        return 'cincopa_uid_g' . (!empty($submission->groupid) ? $submission->groupid : 0);
+    }
+
+    /**
      * Get the Cincopa User ID (accid) based on the current token.
      * This is now only called once when the submission is saved.
      * @return string
@@ -130,8 +167,11 @@ class assign_submission_cincopa extends assign_submission_plugin
             if ($courseToken) {
                 // If a token is already saved for this assignment, it takes precedence.
                 $mform->setDefault('assignsubmission_cincopa_courseApiToken', $courseToken);
-            } else if ($has_custom_field_token) {
-                // Otherwise, if no assignment token is set, use the custom field as the default.
+            } else if ($has_custom_field_token && !$this->has_submissions()) {
+                // Otherwise, if no assignment token is set, use the custom field as
+                // the default - but not once submissions exist, because they were
+                // uploaded through the site-level token and prefilling here would
+                // move the assignment to another account on the next save.
                 $mform->setDefault('assignsubmission_cincopa_courseApiToken', $course_metadata['cp_token']);
             }
 
@@ -153,18 +193,31 @@ class assign_submission_cincopa extends assign_submission_plugin
             } else {
                 $error_string = get_string($auto_token_details['error_code'], 'assignsubmission_cincopa', $auto_token_details['error_message']);
                 $mform->addElement('static', 'assignsubmission_cincopa_auto_token_display', '', $error_string);
-                $mform->hardFreeze('assignsubmission_cincopa_token_mode', 'auto');
-                $mform->setDefault('assignsubmission_cincopa_token_mode', 'manual');
             }
 
             $mform->addElement('text', 'assignsubmission_cincopa_manualApiToken', get_string('manual_token', 'assignsubmission_cincopa'));
             $mform->disabledIf('assignsubmission_cincopa_manualApiToken', 'assignsubmission_cincopa_token_mode', 'eq', 'auto');
 
-            if ($this->get_config('tokenMode')) {
-                $mform->setDefault('assignsubmission_cincopa_token_mode', $this->get_config('tokenMode'));
-            } else {
-                 $mform->setDefault('assignsubmission_cincopa_token_mode', 'auto');
+            $initial_mode = $this->get_config('tokenMode');
+            if (empty($initial_mode)) {
+                // No stored mode. Open in manual mode whenever there is something to
+                // protect - a token of its own, or submissions that were uploaded
+                // through the site-level token while this assignment stored nothing.
+                // Showing Automatic for those would advertise an account the
+                // assignment does not use, on a save that is then refused anyway,
+                // and would make choosing Automatic not count as a switch. Also
+                // manual when the automatic lookup failed, as before.
+                if ($this->get_config('courseApiToken')
+                        || empty($auto_token_details['token'])
+                        || $this->has_submissions()) {
+                    $initial_mode = 'manual';
+                } else {
+                    $initial_mode = 'auto';
+                }
             }
+            $mform->setDefault('assignsubmission_cincopa_token_mode', $initial_mode);
+            $mform->addElement('hidden', 'assignsubmission_cincopa_token_mode_initial', $initial_mode);
+            $mform->setType('assignsubmission_cincopa_token_mode_initial', PARAM_ALPHA);
             if ($this->get_config('courseApiToken')) {
                  $mform->setDefault('assignsubmission_cincopa_manualApiToken', $this->get_config('courseApiToken'));
             }
@@ -313,13 +366,32 @@ class assign_submission_cincopa extends assign_submission_plugin
         // The sub-account fields are present.
         else if (isset($data->assignsubmission_cincopa_token_mode)) {
             $token_mode = $data->assignsubmission_cincopa_token_mode;
-            $this->set_config('tokenMode', $token_mode);
 
             if ($token_mode == 'auto') {
-                if (isset($data->assignsubmission_cincopa_auto_token_value)) {
+                // SAFEGUARD: adopt the automatic token only when this assignment has
+                // nothing to lose - no token of its own AND no submissions yet - or
+                // when the teacher switched the mode on this form.
+                //
+                // The token check alone is not enough: an assignment left with an
+                // empty token uploads through the site-level token in
+                // get_cincopa_token(), so it can hold submissions in that account
+                // while storing nothing itself.
+                $initial_mode = isset($data->assignsubmission_cincopa_token_mode_initial)
+                    ? $data->assignsubmission_cincopa_token_mode_initial
+                    : null;
+                $switched_to_auto = ($initial_mode !== null && $initial_mode !== 'auto');
+                $unclaimed = !$this->get_config('courseApiToken') && !$this->has_submissions();
+
+                if (($unclaimed || $switched_to_auto)
+                        && isset($data->assignsubmission_cincopa_auto_token_value)) {
                     $this->set_config('courseApiToken', $data->assignsubmission_cincopa_auto_token_value);
+                    // Only record the mode when the token was actually applied,
+                    // otherwise the assignment ends up flagged 'auto' while still
+                    // using a manually entered token.
+                    $this->set_config('tokenMode', 'auto');
                 }
             } else { // manual
+                $this->set_config('tokenMode', 'manual');
                 if (isset($data->assignsubmission_cincopa_manualApiToken)) {
                     $this->set_config('courseApiToken', $data->assignsubmission_cincopa_manualApiToken);
                 }
@@ -386,8 +458,31 @@ class assign_submission_cincopa extends assign_submission_plugin
         // Get the UID from the API. This will only run once per request due to static caching in get_uid().
         $uid = $this->get_uid();
         if ($uid) {
-            // Save the UID to the plugin's configuration for this specific assignment instance.
-            $this->set_config('cincopa_uid', $uid);
+            // The assignment-wide row is a baseline written once, by the first
+            // submission. Later submissions only get a row of their own when their
+            // account differs from it.
+            //
+            // Every submission used to overwrite that single shared row, so one
+            // student submitting under a drifted token changed the account id used
+            // to build EVERY other student's gallery fid - their galleries then
+            // failed with "gallery_not_ready : unknow_user" although nothing about
+            // those submissions had changed.
+            $uid = (string) $uid;
+            $name = $this->uid_config_name($submission);
+            $baseline = (string) $this->get_config('cincopa_uid');
+            $current = $this->get_config($name);
+
+            // Compare against what view() would resolve for this submission, not
+            // just against the baseline. Otherwise a submission that moves back to
+            // the baseline account leaves its old per-submission row in place and
+            // keeps resolving to the account it has just left.
+            $resolved = ($current !== false && $current !== null) ? (string) $current : $baseline;
+
+            if ($baseline === '') {
+                $this->set_config('cincopa_uid', $uid);
+            } else if ($uid !== $resolved) {
+                $this->set_config($name, $uid);
+            }
         }
         return true;
     }
@@ -427,7 +522,11 @@ class assign_submission_cincopa extends assign_submission_plugin
         
         // *** BACKWARD COMPATIBILITY FOR UID ***
         // Get the UID from the saved configuration.
-        $uid = $this->get_config('cincopa_uid');
+        $uid = $this->get_config($this->uid_config_name($submission));
+        if (empty($uid)) {
+            // Baseline for this assignment.
+            $uid = $this->get_config('cincopa_uid');
+        }
         // If it doesn't exist (for older submissions), get it from the API as a fallback.
         if (empty($uid)) {
             $uid = $this->get_uid();

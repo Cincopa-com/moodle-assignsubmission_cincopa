@@ -38,6 +38,9 @@ require_once($CFG->dirroot . '/mod/assign/submission/cincopa/lib.php');
         $galleryname = 'rrid:assign:'.$assignid.':'.$userid;
         $status = $event->get_data()['other']['newstatus'];
         $assignconfig = $DB->get_records_sql("SELECT * FROM {assign_plugin_config} WHERE name = 'courseApiToken' AND assignment = '{$assignid}'");
+        if (empty($assignconfig)) {
+            return; // No token configured for this assignment - nothing to clean up.
+        }
         $assigntoken = array_values($assignconfig)[0]->value;
 
         if($status !== 'submitted') {
