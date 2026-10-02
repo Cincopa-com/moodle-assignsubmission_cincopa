@@ -177,10 +177,14 @@ class assign_submission_cincopa extends assign_submission_plugin
 
         } else {
             // --- NEW SUB-ACCOUNT TOKEN LOGIC ---
-            $mform->addElement('radio', 'assignsubmission_cincopa_token_mode', get_string('token_selection_mode', 'assignsubmission_cincopa'), get_string('token_mode_auto', 'assignsubmission_cincopa'), 'auto');
-            $mform->addElement('radio', 'assignsubmission_cincopa_token_mode', '', get_string('token_mode_manual', 'assignsubmission_cincopa'), 'manual');
-            
             $auto_token_details = $this->find_course_subaccount_token($COURSE->id);
+
+            // Without an automatic token there is nothing for Automatic to apply, and
+            // save_settings() would quietly keep the current mode. Offer it disabled
+            // instead; the message added below says why.
+            $auto_attributes = $auto_token_details['token'] ? null : ['disabled' => 'disabled'];
+            $mform->addElement('radio', 'assignsubmission_cincopa_token_mode', get_string('token_selection_mode', 'assignsubmission_cincopa'), get_string('token_mode_auto', 'assignsubmission_cincopa'), 'auto', $auto_attributes);
+            $mform->addElement('radio', 'assignsubmission_cincopa_token_mode', '', get_string('token_mode_manual', 'assignsubmission_cincopa'), 'manual');
 
             if ($auto_token_details['token']) {
                 $params = new stdClass();
