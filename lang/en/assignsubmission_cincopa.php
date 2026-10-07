@@ -44,4 +44,5 @@ $string['token_mode_manual'] = 'Manual';
 $string['manual_token'] = 'Cincopa Api Token';
 $string['auto_token_found'] = '<strong>Sub-Account:</strong> {$a->subaccount}<br><strong>Token:</strong> {$a->token}';
 $string['auto_token_not_found'] = 'A token could not be found or created for this course\'s sub-account ({$a}).';
-$string['sub_account_creation_api_error'] = '<strong>Creation Failed:</strong> The Cincopa API returned an error: "{$a}" Please enter a token manually.';
+$string['auto_token_no_main_token'] = 'Automatic is unavailable for this course\'s sub-account ({$a}): no Cincopa API token is set in the plugin settings. Enter a token manually.';
+$string['auto_token_api_error'] = 'Automatic is unavailable for this course\'s sub-account ({$a->subaccount}): the Cincopa API call {$a->method} failed: "{$a->message}". The Cincopa API token in the plugin settings needs account and token permissions. Enter a token manually.';

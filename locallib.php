@@ -249,9 +249,57 @@ class assign_submission_cincopa extends assign_submission_plugin
     }
 
     /**
+     * Call a Cincopa API method and decode the reply.
+     *
+     * Cincopa answers errors with an HTTP 4xx status and a JSON body that says
+     * what went wrong. Plain file_get_contents() throws that body away, so ask
+     * for it explicitly and report it.
+     *
+     * @param string $url
+     * @param string $method Method name for the error message, e.g. 'account.list_sub'.
+     * @param stdClass|null $error Set to {method, message} when the call fails.
+     * @return array|null The decoded reply, or null when the call failed.
+     */
+    private function cincopa_api_get($url, $method, &$error) {
+        $context = stream_context_create(['http' => ['ignore_errors' => true]]);
+        $response = @file_get_contents($url, false, $context);
+        $data = $response ? json_decode($response, true) : null;
+
+        if (is_array($data) && (!isset($data['success']) || $data['success'])) {
+            return $data;
+        }
+
+        $error = new stdClass();
+        $error->method = $method;
+        if (is_array($data) && !empty($data['message'])) {
+            $error->message = $data['message'];
+        } else if ($response === false) {
+            $error->message = 'no response from api.cincopa.com';
+        } else {
+            $error->message = 'unexpected response';
+        }
+        return null;
+    }
+
+    /**
+     * Build the result find_course_subaccount_token() returns for an API failure.
+     *
+     * @param string $target_account_name
+     * @param stdClass $error As set by cincopa_api_get().
+     * @return array
+     */
+    private function subaccount_api_error($target_account_name, stdClass $error) {
+        $a = new stdClass();
+        $a->subaccount = $target_account_name;
+        $a->method = $error->method;
+        $a->message = s($error->message);
+        return ['token' => null, 'sub_account_name' => $target_account_name, 'error_code' => 'auto_token_api_error', 'error_message' => $a];
+    }
+
+    /**
      * Finds or creates a Cincopa token for a sub-account based on the course creation date.
      * @param int $courseid
-     * @return array ['token' => string|null, 'sub_account_name' => string, 'error_code' => string|null, 'error_message' => string|null]
+     * @return array ['token' => string|null, 'sub_account_name' => string, 'error_code' => string|null, 'error_message' => string|stdClass|null]
      */
     private function find_course_subaccount_token($courseid) {
         global $DB;
@@ -261,76 +309,69 @@ class assign_submission_cincopa extends assign_submission_plugin
         
         $main_api_token = get_config('assignsubmission_cincopa', 'api_token_cincopa');
         if (empty($main_api_token)) {
-            return ['token' => null, 'sub_account_name' => $target_account_name, 'error_code' => 'auto_token_not_found', 'error_message' => $target_account_name];
+            return ['token' => null, 'sub_account_name' => $target_account_name, 'error_code' => 'auto_token_no_main_token', 'error_message' => $target_account_name];
         }
 
+        $api_error = null;
         $url_list_sub = "https://api.cincopa.com/v2/account.list_sub.json?api_token=" . $main_api_token;
-        $response_list_sub = @file_get_contents($url_list_sub);
-        $sub_account_uid = null;
+        $data_list_sub = $this->cincopa_api_get($url_list_sub, 'account.list_sub', $api_error);
+        if ($data_list_sub === null) {
+            // Without the list we cannot tell whether the sub-account exists, and
+            // creating it blindly could make a duplicate.
+            return $this->subaccount_api_error($target_account_name, $api_error);
+        }
 
-        if ($response_list_sub) {
-            $data_list_sub = json_decode($response_list_sub, true);
-            if (!empty($data_list_sub['sub_accounts'])) {
-                foreach ($data_list_sub['sub_accounts'] as $sub_account) {
-                    if (isset($sub_account['account_name']) && $sub_account['account_name'] == $target_account_name) {
-                        $sub_account_uid = $sub_account['uid'];
-                        break;
-                    }
+        $sub_account_uid = null;
+        if (!empty($data_list_sub['sub_accounts'])) {
+            foreach ($data_list_sub['sub_accounts'] as $sub_account) {
+                if (isset($sub_account['account_name']) && $sub_account['account_name'] == $target_account_name) {
+                    $sub_account_uid = $sub_account['uid'];
+                    break;
                 }
             }
         }
         
         if (empty($sub_account_uid)) {
             $url_create_sub = "https://api.cincopa.com/v2/account.add_sub.json?api_token=" . $main_api_token . "&name=" . urlencode($target_account_name);
-            $response_create_sub = @file_get_contents($url_create_sub);
-
-            if ($response_create_sub) {
-                $data_create_sub = json_decode($response_create_sub, true);
-                if (isset($data_create_sub['success']) && $data_create_sub['success'] && !empty($data_create_sub['new_sub_account_uid'])) {
-                    $sub_account_uid = $data_create_sub['new_sub_account_uid'];
-                } else if (isset($data_create_sub['message'])) {
-                    // GENERIC ERROR HANDLING
-                    return ['token' => null, 'sub_account_name' => $target_account_name, 'error_code' => 'sub_account_creation_api_error', 'error_message' => $data_create_sub['message']];
-                }
+            $data_create_sub = $this->cincopa_api_get($url_create_sub, 'account.add_sub', $api_error);
+            if ($data_create_sub === null) {
+                return $this->subaccount_api_error($target_account_name, $api_error);
             }
-
-            if (empty($sub_account_uid)) {
-                 return ['token' => null, 'sub_account_name' => $target_account_name, 'error_code' => 'auto_token_not_found', 'error_message' => $target_account_name];
+            if (empty($data_create_sub['new_sub_account_uid'])) {
+                return ['token' => null, 'sub_account_name' => $target_account_name, 'error_code' => 'auto_token_not_found', 'error_message' => $target_account_name];
             }
+            $sub_account_uid = $data_create_sub['new_sub_account_uid'];
         }
 
         $url_list_tokens = "https://api.cincopa.com/v2/token.list.json?api_token=" . $main_api_token . "&sub_account=" . $sub_account_uid;
-        $response_list_tokens = @file_get_contents($url_list_tokens);
+        $data_list_tokens = $this->cincopa_api_get($url_list_tokens, 'token.list', $api_error);
         $final_token = null;
 
-        if ($response_list_tokens) {
-            $data_list_tokens = json_decode($response_list_tokens, true);
-            if (!empty($data_list_tokens['tokens'])) {
-                foreach ($data_list_tokens['tokens'] as $token) {
-                    $permissions = $token['permissions'];
-                    if (
-                        // gallery.* + asset.*
-                        (strpos($permissions, 'gallery.*') !== false && strpos($permissions, 'asset.*') !== false)
-                        ||
-                        // gallery.* + (asset.read & asset.write)
-                        (strpos($permissions, 'gallery.*') !== false &&
-                            strpos($permissions, 'asset.read') !== false &&
-                            strpos($permissions, 'asset.write') !== false)
-                        ||
-                        // asset.* + (gallery.read & gallery.write)
-                        (strpos($permissions, 'asset.*') !== false &&
-                            strpos($permissions, 'gallery.read') !== false &&
-                            strpos($permissions, 'gallery.write') !== false)
-                        ||
-                        // (gallery.read & gallery.write) + (asset.read & asset.write)
-                        (strpos($permissions, 'gallery.read') !== false &&
-                            strpos($permissions, 'gallery.write') !== false &&
-                            strpos($permissions, 'asset.read') !== false &&
-                            strpos($permissions, 'asset.write') !== false)
-                    ){
-                        $final_token = $token['api_token'];
-                        break;
-                    }
+        if (!empty($data_list_tokens['tokens'])) {
+            foreach ($data_list_tokens['tokens'] as $token) {
+                $permissions = $token['permissions'];
+                if (
+                    // gallery.* + asset.*
+                    (strpos($permissions, 'gallery.*') !== false && strpos($permissions, 'asset.*') !== false)
+                    ||
+                    // gallery.* + (asset.read & asset.write)
+                    (strpos($permissions, 'gallery.*') !== false &&
+                        strpos($permissions, 'asset.read') !== false &&
+                        strpos($permissions, 'asset.write') !== false)
+                    ||
+                    // asset.* + (gallery.read & gallery.write)
+                    (strpos($permissions, 'asset.*') !== false &&
+                        strpos($permissions, 'gallery.read') !== false &&
+                        strpos($permissions, 'gallery.write') !== false)
+                    ||
+                    // (gallery.read & gallery.write) + (asset.read & asset.write)
+                    (strpos($permissions, 'gallery.read') !== false &&
+                        strpos($permissions, 'gallery.write') !== false &&
+                        strpos($permissions, 'asset.read') !== false &&
+                        strpos($permissions, 'asset.write') !== false)
+                ){
+                    $final_token = $token['api_token'];
+                    break;
                 }
             }
         }
@@ -338,17 +379,16 @@ class assign_submission_cincopa extends assign_submission_plugin
         if (empty($final_token)) {
             $url_create_token = "https://api.cincopa.com/v2/token.create.json?api_token=" . $main_api_token .
                                 "&name=moodle_course_" . $courseid . "_token&permissions=asset.*|gallery.*&sub_account=" . $sub_account_uid;
-            $response_create_token = @file_get_contents($url_create_token);
-            if ($response_create_token) {
-                $data_create_token = json_decode($response_create_token, true);
-                if (isset($data_create_token['success']) && $data_create_token['success'] && !empty($data_create_token['api_token'])) {
-                    $final_token = $data_create_token['api_token'];
-                }
+            $data_create_token = $this->cincopa_api_get($url_create_token, 'token.create', $api_error);
+            if (!empty($data_create_token['api_token'])) {
+                $final_token = $data_create_token['api_token'];
             }
         }
         
         if ($final_token) {
             return ['token' => $final_token, 'sub_account_name' => $target_account_name, 'error_code' => null, 'error_message' => null];
+        } else if ($api_error) {
+            return $this->subaccount_api_error($target_account_name, $api_error);
         } else {
             return ['token' => null, 'sub_account_name' => $target_account_name, 'error_code' => 'auto_token_not_found', 'error_message' => $target_account_name];
         }
@@ -521,6 +561,13 @@ class assign_submission_cincopa extends assign_submission_plugin
     {
         $cmid = $submission->assignment;
         $defaultapitoken = $this->get_cincopa_token();
+        if (!empty($defaultapitoken)) {
+            // The page script below reads this token, so anyone viewing the
+            // submission can see it. Hand it a short-lived token instead of the
+            // stored one, as the upload form does.
+            $expire = new DateTime('+2 hour');
+            $defaultapitoken = createSelfGeneratedTempTokenV3getTempAPIKeyV2($defaultapitoken, $expire, null, null, null, null);
+        }
         $defaulttemplate = get_config('assignsubmission_cincopa', 'template_cincopa');
         $enabled_recording = get_config('assignsubmission_cincopa', 'enabled_recording');
         
