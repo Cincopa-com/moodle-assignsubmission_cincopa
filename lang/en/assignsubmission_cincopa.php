@@ -46,3 +46,5 @@ $string['auto_token_found'] = '<strong>Sub-Account:</strong> {$a->subaccount}<br
 $string['auto_token_not_found'] = 'A token could not be found or created for this course\'s sub-account ({$a}).';
 $string['auto_token_no_main_token'] = 'Automatic is unavailable for this course\'s sub-account ({$a}): no Cincopa API token is set in the plugin settings. Enter a token manually.';
 $string['auto_token_api_error'] = 'Automatic is unavailable for this course\'s sub-account ({$a->subaccount}): the Cincopa API call {$a->method} failed: "{$a->message}". The Cincopa API token in the plugin settings needs account and token permissions. Enter a token manually.';
+$string['cincopa_not_enabled'] = 'Cincopa submissions are not enabled for this assignment.';
+$string['mobile_config_error'] = 'The Cincopa uploader could not be loaded for this assignment. Check your connection and try again, or contact your teacher.';

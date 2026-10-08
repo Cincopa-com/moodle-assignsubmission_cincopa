@@ -59,6 +59,40 @@ class assign_submission_cincopa extends assign_submission_plugin
     }
 
     /**
+     * What the Moodle app needs to show or upload one user's submission.
+     *
+     * Picks the token exactly as the web pages do, so an upload from the app
+     * lands in the same account as one from the browser. The app only ever
+     * sees a short-lived token derived from it.
+     *
+     * @param int $userid Owner of the submission.
+     * @return array ['token' => string, 'uid' => string, 'allowedtypes' => string, 'userid' => int]
+     */
+    public function get_mobile_config($userid) {
+        $uid = $this->get_config($this->uid_config_name((object) ['userid' => $userid]));
+        if (empty($uid)) {
+            // Baseline for this assignment.
+            $uid = $this->get_config('cincopa_uid');
+        }
+        if (empty($uid)) {
+            $uid = $this->get_uid();
+        }
+
+        $token = $this->get_cincopa_token();
+        if (!empty($token)) {
+            $expire = new DateTime('+2 hour');
+            $token = createSelfGeneratedTempTokenV3getTempAPIKeyV2($token, $expire, null, null, null, null);
+        }
+
+        return [
+            'token' => (string) $token,
+            'uid' => (string) $uid,
+            'allowedtypes' => (string) $this->get_config('courseAssetTypes'),
+            'userid' => (int) $userid,
+        ];
+    }
+
+    /**
      * Whether any student has started work on this assignment.
      *
      * Deliberately counts 'new' rows too. Moodle creates a submission row

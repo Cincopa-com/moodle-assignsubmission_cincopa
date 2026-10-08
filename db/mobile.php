@@ -20,6 +20,7 @@ $addons = [
             ['api_token_cincopa', 'assignsubmission_cincopa'],
             ['api_token_cincopa_help', 'assignsubmission_cincopa'],
             ['description', 'assignsubmission_cincopa'],
+            ['mobile_config_error', 'assignsubmission_cincopa'],
         ],
     ],
 ];
