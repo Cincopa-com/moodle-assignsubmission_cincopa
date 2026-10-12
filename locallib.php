@@ -41,7 +41,7 @@ define('ASSIGNSUBMISSION_CINCOPA_FILEAREA', 'submissions_cincopa');
 
 class assign_submission_cincopa extends assign_submission_plugin
 {
-    static $uid;
+    static $uid = []; // Account id (accid) per API token.
 
     /**
      * Get the API token to use for Cincopa calls.
@@ -135,23 +135,26 @@ class assign_submission_cincopa extends assign_submission_plugin
      * @return string
      */
     public function get_uid(){
-        if(!self::$uid) {
-            $current_token = $this->get_cincopa_token();
-            if (empty($current_token)) {
-                return null;
-            }
-    
+        $current_token = $this->get_cincopa_token();
+        if (empty($current_token)) {
+            return null;
+        }
+
+        // Cached per token: one request can handle assignments in different
+        // accounts (the app batches web service calls), and a single shared
+        // value handed the first account's id to all of them.
+        if (!isset(self::$uid[$current_token])) {
             $url = "https://api.cincopa.com/v2/ping.json?api_token=" . $current_token;
             $result = @file_get_contents($url); // Use @ to suppress warnings if the URL fails.
             if ($result) {
                 $result_decoded = json_decode($result, true);
                 if (isset($result_decoded['accid'])) {
-                    self::$uid = $result_decoded['accid'];
+                    self::$uid[$current_token] = $result_decoded['accid'];
                 }
             }
         }
 
-        return self::$uid;
+        return self::$uid[$current_token] ?? null;
     }
     
     public function get_name()
