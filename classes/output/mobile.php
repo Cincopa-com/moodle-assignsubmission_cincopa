@@ -85,6 +85,15 @@ class mobile  {
                     return true;
                 },
 
+                // The app (4.5+) refuses to save with "Nothing was submitted"
+                // unless some plugin says it is not empty, and the default
+                // handler always says empty. The media lives in Cincopa, not in
+                // the form, so treat the submission as not empty - the same as
+                // the web form, which never blocks on it either.
+                isEmptyForEdit: function() {
+                    return false;
+                },
+
                 hasDataChanged: function() {
                     return true;
                 },
